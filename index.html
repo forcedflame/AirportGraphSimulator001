@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<!-- Version 0.7 – Metric support wired -->
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Embargo Game – Route Planner</title>
+  <link rel="stylesheet" href="/static/leaflet.css">
+  <script src="/static/leaflet.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+</head>
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:           #0f1117;
+    --panel:        #1a1d27;
+    --panel-border: #2a2d3e;
+    --accent:       #4f8ef7;
+    --accent-glow:  rgba(79,142,247,.2);
+    --accent2:      #f75f4f;
+    --text-primary: #e8eaf2;
+    --text-sec:     #8890a8;
+    --text-muted:   #555c75;
+    --success:      #4fd17a;
+    --warning:      #f7c94f;
+    --input-bg:     #12151e;
+    --input-border: #2e3347;
+    --hover-bg:     #222638;
+  }
+
+  html, body { height:100%; width:100%; overflow:hidden; background:var(--bg);
+               font-family:'DM Sans',sans-serif; color:var(--text-primary); }
+
+  #app { display:flex; height:100vh; width:100vw; }
+
+  #sidebar {
+    width:290px; min-width:290px;
+    background:var(--panel);
+    border-right:1px solid var(--panel-border);
+    display:flex; flex-direction:column;
+    z-index:2000; overflow-y:auto; overflow-x:hidden;
+  }
+  #sidebar::-webkit-scrollbar { width:4px; }
+  #sidebar::-webkit-scrollbar-thumb { background:var(--panel-border); border-radius:2px; }
+
+  .sb-header {
+    padding:18px 20px 14px;
+    border-bottom:1px solid var(--panel-border);
+    background:linear-gradient(135deg,#1a1d27,#1e2135);
+    flex-shrink:0;
+  }
+  .logo { display:flex; align-items:center; gap:10px; }
+  .logo-icon {
+    width:34px; height:34px; border-radius:8px; flex-shrink:0;
+    background:linear-gradient(135deg,var(--accent),#7b6ef7);
+    display:flex; align-items:center; justify-content:center; font-size:17px;
+  }
+  .logo h1 { font-family:'Space Mono',monospace; font-size:13px; font-weight:700;
+              letter-spacing:.5px; line-height:1.2; }
+  .logo .sub { font-size:10px; color:var(--text-muted); margin-top:1px; }
+
+  .sb-sec { padding:14px 20px; border-bottom:1px solid var(--panel-border); flex-shrink:0; }
+  .sec-label { font-family:'Space Mono',monospace; font-size:9.5px; font-weight:700;
+               color:var(--text-muted); letter-spacing:1.5px; text-transform:uppercase;
+               margin-bottom:10px; }
+
+  .field { margin-bottom:10px; }
+  .field-lbl { font-size:11px; font-weight:500; color:var(--text-sec);
+               margin-bottom:5px; display:flex; align-items:center; gap:6px; }
+  .dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .dot-dep  { background:var(--accent); }
+  .dot-dest { background:var(--accent2); }
+
+  select {
+    width:100%; background:var(--input-bg); border:1px solid var(--input-border);
+    color:var(--text-primary); padding:8px 30px 8px 11px; border-radius:8px;
+    font-size:11.5px; font-family:'DM Sans',sans-serif; appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 12 12'%3E%3Cpath fill='%238890a8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 10px center; cursor:pointer;
+    transition:border-color .2s,box-shadow .2s;
+  }
+  select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-glow); }
+  select option, select optgroup { background:#1a1d27; color:var(--text-primary); }
+
+  .swap-row { display:flex; align-items:center; gap:8px; margin:4px 0; }
+  .swap-line { flex:1; height:1px; background:var(--panel-border); }
+  .swap-btn {
+    width:26px; height:26px; background:var(--input-bg); border:1px solid var(--input-border);
+    border-radius:50%; display:flex; align-items:center; justify-content:center;
+    cursor:pointer; font-size:13px; color:var(--text-muted); transition:all .2s; flex-shrink:0;
+  }
+  .swap-btn:hover { border-color:var(--accent); color:var(--accent); background:var(--accent-glow); }
+
+  .metric-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .metric-opt { position:relative; }
+  .metric-opt input[type=radio] { position:absolute; opacity:0; width:0; height:0; }
+  .metric-opt label {
+    display:flex; align-items:center; gap:5px; padding:7px 9px;
+    background:var(--input-bg); border:1px solid var(--input-border);
+    border-radius:7px; font-size:11px; color:var(--text-sec); cursor:pointer; transition:all .2s;
+  }
+  .metric-opt input:checked + label {
+    background:var(--accent-glow); border-color:var(--accent); color:var(--accent);
+  }
+  .metric-opt label:hover { border-color:var(--text-muted); color:var(--text-primary); }
+
+  .layover-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px; }
+  .layover-num { font-family:'Space Mono',monospace; font-size:26px; font-weight:700; color:var(--accent); line-height:1; }
+  .layover-sub { font-size:10px; color:var(--text-muted); text-align:right; line-height:1.4; }
+  .pills { display:flex; gap:4px; margin-bottom:9px; }
+  .pill { flex:1; height:4px; background:var(--panel-border); border-radius:2px; transition:background .2s; }
+  .pill.on { background:var(--accent); }
+  input[type=range] {
+    width:100%; appearance:none; -webkit-appearance:none;
+    height:4px; background:var(--panel-border); border-radius:2px; outline:none; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance:none; width:17px; height:17px;
+    background:var(--accent); border-radius:50%; cursor:pointer;
+    border:3px solid var(--panel); box-shadow:0 0 8px var(--accent-glow); transition:box-shadow .2s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover { box-shadow:0 0 14px rgba(79,142,247,.5); }
+  input[type=range]::-moz-range-thumb {
+    width:17px; height:17px; background:var(--accent); border-radius:50%;
+    cursor:pointer; border:3px solid var(--panel);
+  }
+  .range-labels { display:flex; justify-content:space-between; margin-top:5px;
+                  font-size:9.5px; color:var(--text-muted); font-family:'Space Mono',monospace; }
+
+  .btn-primary {
+    width:100%; padding:11px; border:none; border-radius:8px;
+    background:linear-gradient(135deg,var(--accent),#7b6ef7);
+    color:#fff; font-size:13px; font-weight:600; font-family:'DM Sans',sans-serif;
+    cursor:pointer; letter-spacing:.3px; transition:opacity .2s,transform .1s,box-shadow .2s;
+    box-shadow:0 4px 16px rgba(79,142,247,.25);
+  }
+  .btn-primary:hover { opacity:.9; box-shadow:0 6px 24px rgba(79,142,247,.4); }
+  .btn-primary:active { transform:scale(.98); }
+  .btn-primary:disabled { opacity:.45; cursor:not-allowed; }
+
+  .btn-row { display:flex; gap:7px; margin-top:7px; }
+  .btn-sec {
+    flex:1; padding:9px; background:transparent; border:1px solid var(--input-border);
+    color:var(--text-sec); border-radius:8px; font-size:12px; font-family:'DM Sans',sans-serif;
+    cursor:pointer; transition:all .2s;
+  }
+  .btn-sec:hover { background:var(--hover-bg); color:var(--text-primary); border-color:var(--text-muted); }
+
+  .results-sec { padding:14px 20px; flex:1; overflow-y:auto; }
+  .results-sec::-webkit-scrollbar { width:3px; }
+  .results-sec::-webkit-scrollbar-thumb { background:var(--panel-border); border-radius:2px; }
+
+  .algo-card {
+    background:var(--input-bg); border:1px solid var(--input-border);
+    border-radius:10px; padding:11px 12px; margin-bottom:8px;
+    animation:slideIn .3s ease; display:none;
+  }
+  .algo-card.show { display:block; }
+  @keyframes slideIn { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
+
+  .algo-header { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .algo-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .algo-name { font-family:'Space Mono',monospace; font-size:11px; font-weight:700; }
+  .algo-badge {
+    margin-left:auto; font-size:9px; padding:2px 7px; border-radius:10px;
+    font-weight:700; font-family:'Space Mono',monospace;
+  }
+  .badge-faster { background:rgba(79,209,121,.15); color:var(--success); }
+  .badge-more   { background:rgba(247,95,79,.12);  color:var(--accent2); }
+
+  /* highlight row for the active metric */
+  .stat-row { display:flex; justify-content:space-between; margin-bottom:5px; }
+  .stat-row.active .stat-lbl { color:var(--accent); font-weight:600; }
+  .stat-row.active .stat-val { color:var(--accent); }
+  .stat-lbl { font-size:10.5px; color:var(--text-muted); }
+  .stat-val { font-family:'Space Mono',monospace; font-size:11px; color:var(--text-primary); font-weight:700; }
+
+  .path-display {
+    margin-top:8px; padding-top:8px; border-top:1px solid var(--panel-border);
+    font-size:10.5px; color:var(--text-sec); word-break:break-all; line-height:1.7;
+  }
+
+  .msg-card {
+    background:var(--input-bg); border:1px solid var(--input-border); border-radius:10px;
+    padding:10px 12px; font-size:11px; color:var(--text-sec); line-height:1.6;
+    margin-bottom:8px; display:none;
+  }
+  .msg-card.show { display:block; }
+  .msg-card.error { border-color:rgba(247,95,79,.4); color:var(--accent2); }
+
+  .compare-table { width:100%; border-collapse:collapse; margin-top:8px; font-size:10.5px; }
+  .compare-table th { color:var(--text-muted); font-weight:600; padding:4px 6px;
+                      border-bottom:1px solid var(--panel-border); text-align:left; }
+  .compare-table td { padding:5px 6px; color:var(--text-primary); vertical-align:top; }
+  .compare-table tr:not(:last-child) td { border-bottom:1px solid rgba(42,45,62,.5); }
+  .compare-card {
+    background:var(--input-bg); border:1px solid var(--input-border); border-radius:10px;
+    padding:11px 12px; margin-bottom:8px; display:none;
+  }
+  .compare-card.show { display:block; animation:slideIn .3s ease; }
+
+  .empty-state { text-align:center; padding:24px 0; }
+  .empty-state .ei { font-size:30px; margin-bottom:8px; opacity:.35; }
+  .empty-state p { font-size:11px; color:var(--text-muted); line-height:1.6; }
+
+  #map-wrapper { flex:1; position:relative; overflow:hidden; }
+  #map { width:100%; height:100%; }
+
+  .map-topbar {
+    position:absolute; top:12px; left:50%; transform:translateX(-50%);
+    z-index:1500; background:rgba(15,17,23,.85); backdrop-filter:blur(10px);
+    border:1px solid var(--panel-border); border-radius:30px;
+    padding:6px 16px; font-size:11px; color:var(--text-sec);
+    font-family:'Space Mono',monospace; pointer-events:none; white-space:nowrap;
+  }
+  .live-dot { display:inline-block; width:6px; height:6px; border-radius:50%;
+              background:var(--success); margin-right:7px; animation:blink 2s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+  #loading {
+    position:absolute; inset:0; background:rgba(15,17,23,.6); backdrop-filter:blur(3px);
+    z-index:3000; display:none; align-items:center; justify-content:center;
+  }
+  #loading.show { display:flex; }
+  .spinner {
+    width:36px; height:36px; border:3px solid var(--panel-border);
+    border-top-color:var(--accent); border-radius:50%;
+    animation:spin .8s linear infinite;
+  }
+  @keyframes spin { to{transform:rotate(360deg)} }
+
+  #play-overlay {
+    position:fixed; inset:0; background:rgba(10,12,20,.75); backdrop-filter:blur(8px);
+    z-index:9000; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+  }
+  #play-overlay h1 { font-family:'Space Mono',monospace; font-size:30px; font-weight:700;
+                     color:var(--text-primary); letter-spacing:2px; }
+  #play-overlay p  { font-size:13px; color:var(--text-muted); max-width:300px;
+                     text-align:center; line-height:1.6; }
+  #play-btn {
+    padding:13px 46px; background:linear-gradient(135deg,var(--accent),#7b6ef7);
+    color:#fff; border:none; border-radius:50px; font-size:15px; font-weight:700;
+    font-family:'Space Mono',monospace; cursor:pointer; letter-spacing:1px; margin-top:6px;
+    box-shadow:0 8px 30px rgba(79,142,247,.4); transition:transform .2s,box-shadow .2s;
+  }
+  #play-btn:hover { transform:scale(1.04); box-shadow:0 12px 40px rgba(79,142,247,.55); }
+
+  .leaflet-control-zoom { border:1px solid var(--panel-border)!important; border-radius:8px!important; overflow:hidden; }
+  .leaflet-control-zoom a { background:var(--panel)!important; color:var(--text-sec)!important; border:none!important; }
+  .leaflet-control-zoom a:hover { background:var(--hover-bg)!important; color:var(--text-primary)!important; }
+  .leaflet-control-attribution { background:rgba(15,17,23,.7)!important; color:var(--text-muted)!important;
+                                  font-size:9px!important; backdrop-filter:blur(4px); border-radius:4px 0 0 0!important; }
+  .leaflet-control-attribution a { color:var(--text-muted)!important; }
+</style>
+
+<body>
+
+<div id="play-overlay">
+  <h1>EMBARGO GAME</h1>
+  <p>Simulate international flight routes, compare Dijkstra vs A*, and enforce layover constraints.</p>
+  <button id="play-btn">&#9654; PLAY</button>
+</div>
+
+<div id="app">
+  <div id="sidebar">
+
+    <div class="sb-header">
+      <div class="logo">
+        <div class="logo-icon">&#9992;</div>
+        <div>
+          <h1>ROUTE PLANNER</h1>
+          <div class="sub">Dijkstra &amp; A* Pathfinding</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Airport Selection -->
+    <div class="sb-sec">
+      <div class="sec-label">Airports</div>
+      <div class="field">
+        <div class="field-lbl"><span class="dot dot-dep"></span>Departure Airport</div>
+        <select id="dep">
+          <option value="">-- Select airport --</option>
+          <optgroup label="United States">
+            <option value="JFK">JFK - New York</option><option value="LAX">LAX - Los Angeles</option>
+            <option value="ORD">ORD - Chicago</option><option value="ATL">ATL - Atlanta</option>
+            <option value="MIA">MIA - Miami</option><option value="SFO">SFO - San Francisco</option>
+            <option value="SEA">SEA - Seattle</option><option value="BOS">BOS - Boston</option>
+            <option value="DFW">DFW - Dallas</option><option value="DEN">DEN - Denver</option>
+          </optgroup>
+          <optgroup label="Europe">
+            <option value="LHR">LHR - London Heathrow</option><option value="LGW">LGW - London Gatwick</option>
+            <option value="CDG">CDG - Paris CDG</option><option value="AMS">AMS - Amsterdam</option>
+            <option value="FRA">FRA - Frankfurt</option><option value="MAD">MAD - Madrid</option>
+            <option value="BCN">BCN - Barcelona</option><option value="FCO">FCO - Rome</option>
+            <option value="MUC">MUC - Munich</option><option value="ZRH">ZRH - Zurich</option>
+            <option value="VIE">VIE - Vienna</option><option value="CPH">CPH - Copenhagen</option>
+            <option value="ARN">ARN - Stockholm</option><option value="HEL">HEL - Helsinki</option>
+            <option value="OSL">OSL - Oslo</option><option value="WAW">WAW - Warsaw</option>
+            <option value="PRG">PRG - Prague</option><option value="BUD">BUD - Budapest</option>
+            <option value="ATH">ATH - Athens</option><option value="LIS">LIS - Lisbon</option>
+            <option value="DUB">DUB - Dublin</option><option value="MAN">MAN - Manchester</option>
+          </optgroup>
+          <optgroup label="Middle East">
+            <option value="DXB">DXB - Dubai</option><option value="AUH">AUH - Abu Dhabi</option>
+            <option value="DOH">DOH - Doha</option><option value="RUH">RUH - Riyadh</option>
+            <option value="KWI">KWI - Kuwait City</option><option value="IST">IST - Istanbul</option>
+          </optgroup>
+          <optgroup label="Asia Pacific">
+            <option value="SIN">SIN - Singapore</option><option value="BKK">BKK - Bangkok</option>
+            <option value="KUL">KUL - Kuala Lumpur</option><option value="CGK">CGK - Jakarta</option>
+            <option value="MNL">MNL - Manila</option><option value="HKG">HKG - Hong Kong</option>
+            <option value="PVG">PVG - Shanghai</option><option value="PEK">PEK - Beijing</option>
+            <option value="ICN">ICN - Seoul</option><option value="NRT">NRT - Tokyo Narita</option>
+            <option value="HND">HND - Tokyo Haneda</option><option value="SYD">SYD - Sydney</option>
+            <option value="MEL">MEL - Melbourne</option><option value="AKL">AKL - Auckland</option>
+          </optgroup>
+          <optgroup label="Africa">
+            <option value="CAI">CAI - Cairo</option><option value="JNB">JNB - Johannesburg</option>
+            <option value="NBO">NBO - Nairobi</option><option value="LOS">LOS - Lagos</option>
+            <option value="ADD">ADD - Addis Ababa</option><option value="CPT">CPT - Cape Town</option>
+          </optgroup>
+          <optgroup label="Americas">
+            <option value="YYZ">YYZ - Toronto</option><option value="YVR">YVR - Vancouver</option>
+            <option value="YUL">YUL - Montreal</option><option value="MEX">MEX - Mexico City</option>
+            <option value="GRU">GRU - Sao Paulo</option><option value="GIG">GIG - Rio de Janeiro</option>
+            <option value="BOG">BOG - Bogota</option><option value="LIM">LIM - Lima</option>
+            <option value="SCL">SCL - Santiago</option><option value="EZE">EZE - Buenos Aires</option>
+          </optgroup>
+          <optgroup label="India / Russia">
+            <option value="DEL">DEL - New Delhi</option><option value="BOM">BOM - Mumbai</option>
+            <option value="BLR">BLR - Bangalore</option><option value="MAA">MAA - Chennai</option>
+            <option value="HYD">HYD - Hyderabad</option><option value="SVO">SVO - Moscow</option>
+            <option value="DME">DME - Moscow Domodedovo</option><option value="LED">LED - St Petersburg</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <div class="swap-row">
+        <div class="swap-line"></div>
+        <div class="swap-btn" id="swap-btn" title="Swap airports">&#8645;</div>
+        <div class="swap-line"></div>
+      </div>
+
+      <div class="field">
+        <div class="field-lbl"><span class="dot dot-dest"></span>Destination Airport</div>
+        <select id="dest">
+          <option value="">-- Select airport --</option>
+          <optgroup label="United States">
+            <option value="JFK">JFK - New York</option><option value="LAX">LAX - Los Angeles</option>
+            <option value="ORD">ORD - Chicago</option><option value="ATL">ATL - Atlanta</option>
+            <option value="MIA">MIA - Miami</option><option value="SFO">SFO - San Francisco</option>
+            <option value="SEA">SEA - Seattle</option><option value="BOS">BOS - Boston</option>
+            <option value="DFW">DFW - Dallas</option><option value="DEN">DEN - Denver</option>
+          </optgroup>
+          <optgroup label="Europe">
+            <option value="LHR">LHR - London Heathrow</option><option value="LGW">LGW - London Gatwick</option>
+            <option value="CDG">CDG - Paris CDG</option><option value="AMS">AMS - Amsterdam</option>
+            <option value="FRA">FRA - Frankfurt</option><option value="MAD">MAD - Madrid</option>
+            <option value="BCN">BCN - Barcelona</option><option value="FCO">FCO - Rome</option>
+            <option value="MUC">MUC - Munich</option><option value="ZRH">ZRH - Zurich</option>
+            <option value="VIE">VIE - Vienna</option><option value="CPH">CPH - Copenhagen</option>
+            <option value="ARN">ARN - Stockholm</option><option value="HEL">HEL - Helsinki</option>
+            <option value="OSL">OSL - Oslo</option><option value="WAW">WAW - Warsaw</option>
+            <option value="PRG">PRG - Prague</option><option value="BUD">BUD - Budapest</option>
+            <option value="ATH">ATH - Athens</option><option value="LIS">LIS - Lisbon</option>
+            <option value="DUB">DUB - Dublin</option><option value="MAN">MAN - Manchester</option>
+          </optgroup>
+          <optgroup label="Middle East">
+            <option value="DXB">DXB - Dubai</option><option value="AUH">AUH - Abu Dhabi</option>
+            <option value="DOH">DOH - Doha</option><option value="RUH">RUH - Riyadh</option>
+            <option value="KWI">KWI - Kuwait City</option><option value="IST">IST - Istanbul</option>
+          </optgroup>
+          <optgroup label="Asia Pacific">
+            <option value="SIN">SIN - Singapore</option><option value="BKK">BKK - Bangkok</option>
+            <option value="KUL">KUL - Kuala Lumpur</option><option value="CGK">CGK - Jakarta</option>
+            <option value="MNL">MNL - Manila</option><option value="HKG">HKG - Hong Kong</option>
+            <option value="PVG">PVG - Shanghai</option><option value="PEK">PEK - Beijing</option>
+            <option value="ICN">ICN - Seoul</option><option value="NRT">NRT - Tokyo Narita</option>
+            <option value="HND">HND - Tokyo Haneda</option><option value="SYD">SYD - Sydney</option>
+            <option value="MEL">MEL - Melbourne</option><option value="AKL">AKL - Auckland</option>
+          </optgroup>
+          <optgroup label="Africa">
+            <option value="CAI">CAI - Cairo</option><option value="JNB">JNB - Johannesburg</option>
+            <option value="NBO">NBO - Nairobi</option><option value="LOS">LOS - Lagos</option>
+            <option value="ADD">ADD - Addis Ababa</option><option value="CPT">CPT - Cape Town</option>
+          </optgroup>
+          <optgroup label="Americas">
+            <option value="YYZ">YYZ - Toronto</option><option value="YVR">YVR - Vancouver</option>
+            <option value="YUL">YUL - Montreal</option><option value="MEX">MEX - Mexico City</option>
+            <option value="GRU">GRU - Sao Paulo</option><option value="GIG">GIG - Rio de Janeiro</option>
+            <option value="BOG">BOG - Bogota</option><option value="LIM">LIM - Lima</option>
+            <option value="SCL">SCL - Santiago</option><option value="EZE">EZE - Buenos Aires</option>
+          </optgroup>
+          <optgroup label="India / Russia">
+            <option value="DEL">DEL - New Delhi</option><option value="BOM">BOM - Mumbai</option>
+            <option value="BLR">BLR - Bangalore</option><option value="MAA">MAA - Chennai</option>
+            <option value="HYD">HYD - Hyderabad</option><option value="SVO">SVO - Moscow</option>
+            <option value="DME">DME - Moscow Domodedovo</option><option value="LED">LED - St Petersburg</option>
+          </optgroup>
+        </select>
+      </div>
+    </div>
+
+    <!-- Optimization Metric -->
+    <div class="sb-sec">
+      <div class="sec-label">Optimization Metric</div>
+      <div class="metric-grid">
+        <div class="metric-opt">
+          <input type="radio" name="metric" id="m-dist" value="distance" checked>
+          <label for="m-dist"><span>&#128207;</span> Shortest</label>
+        </div>
+        <div class="metric-opt">
+          <input type="radio" name="metric" id="m-time" value="time">
+          <label for="m-time"><span>&#9201;</span> Fastest</label>
+        </div>
+        <div class="metric-opt">
+          <input type="radio" name="metric" id="m-cost" value="cost">
+          <label for="m-cost"><span>&#128176;</span> Cheapest</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Layover Adjuster -->
+    <div class="sb-sec">
+      <div class="sec-label">Layovers</div>
+      <div class="layover-top">
+        <div>
+          <div class="layover-num" id="layover-num">0</div>
+          <div style="font-size:9.5px;color:var(--text-muted);margin-top:1px;">stops</div>
+        </div>
+        <div class="layover-sub">Max layovers<br>required</div>
+      </div>
+      <div class="pills" id="pills">
+        <div class="pill" data-i="1"></div>
+        <div class="pill" data-i="2"></div>
+        <div class="pill" data-i="3"></div>
+        <div class="pill" data-i="4"></div>
+        <div class="pill" data-i="5"></div>
+      </div>
+      <input type="range" id="layover-slider" min="0" max="5" value="0" step="1">
+      <div class="range-labels">
+        <span>Direct</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="sb-sec">
+      <button class="btn-primary" id="find-btn">&#9992; Find Route</button>
+      <div class="btn-row">
+        <button class="btn-sec" id="reset-btn">&#8635; Reset</button>
+        <button class="btn-sec" id="compare-btn">&#8862; Compare</button>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="results-sec">
+      <div class="sec-label">Results</div>
+      <div class="msg-card" id="msg-card"></div>
+
+      <!-- Dijkstra card -->
+      <div class="algo-card" id="card-dijkstra">
+        <div class="algo-header">
+          <div class="algo-dot" style="background:rgb(59,130,246)"></div>
+          <div class="algo-name">Dijkstra</div>
+          <div class="algo-badge" id="badge-dijk"></div>
+        </div>
+        <div class="stat-row" id="dijk-row-dist">
+          <span class="stat-lbl">Distance</span>
+          <span class="stat-val" id="dijk-dist">--</span>
+        </div>
+        <div class="stat-row" id="dijk-row-time">
+          <span class="stat-lbl">Flight time</span>
+          <span class="stat-val" id="dijk-time">--</span>
+        </div>
+        <div class="stat-row" id="dijk-row-cost">
+          <span class="stat-lbl">Cost</span>
+          <span class="stat-val" id="dijk-cost">--</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-lbl">Nodes explored</span>
+          <span class="stat-val" id="dijk-nodes">--</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-lbl">Stops</span>
+          <span class="stat-val" id="dijk-stops">--</span>
+        </div>
+        <div class="path-display" id="dijk-path"></div>
+      </div>
+
+      <!-- A* card -->
+      <div class="algo-card" id="card-astar">
+        <div class="algo-header">
+          <div class="algo-dot" style="background:rgb(249,115,22)"></div>
+          <div class="algo-name">A* Search</div>
+          <div class="algo-badge" id="badge-astar"></div>
+        </div>
+        <div class="stat-row" id="astar-row-dist">
+          <span class="stat-lbl">Distance</span>
+          <span class="stat-val" id="astar-dist">--</span>
+        </div>
+        <div class="stat-row" id="astar-row-time">
+          <span class="stat-lbl">Flight time</span>
+          <span class="stat-val" id="astar-time">--</span>
+        </div>
+        <div class="stat-row" id="astar-row-cost">
+          <span class="stat-lbl">Cost</span>
+          <span class="stat-val" id="astar-cost">--</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-lbl">Nodes explored</span>
+          <span class="stat-val" id="astar-nodes">--</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-lbl">Stops</span>
+          <span class="stat-val" id="astar-stops">--</span>
+        </div>
+        <div class="path-display" id="astar-path"></div>
+      </div>
+
+      <!-- Compare table -->
+      <div class="compare-card" id="compare-card">
+        <div class="sec-label" style="margin-bottom:6px;">Side-by-Side</div>
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th style="color:rgb(59,130,246)">Dijkstra</th>
+              <th style="color:rgb(249,115,22)">A*</th>
+            </tr>
+          </thead>
+          <tbody id="compare-body"></tbody>
+        </table>
+      </div>
+
+      <div class="empty-state" id="empty-state">
+        <div class="ei">&#128506;</div>
+        <p>Select two airports and click <strong>Find Route</strong>.<br>
+           Or click any airport on the map directly.</p>
+      </div>
+    </div>
+
+  </div><!-- /sidebar -->
+
+  <!-- MAP -->
+  <div id="map-wrapper">
+    <div class="map-topbar">
+      <span class="live-dot"></span>LIVE -- click airports on map to interact
+    </div>
+    <div id="loading"><div class="spinner"></div></div>
+    <div id="map"></div>
+  </div>
+</div><!-- /app -->
+
+<script>
+const AIRPORT_COORDS = {
+  JFK:[40.6413,-73.7781],LAX:[33.9425,-118.4081],ORD:[41.9742,-87.9073],ATL:[33.6407,-84.4277],
+  MIA:[25.7959,-80.2870],SFO:[37.6213,-122.3790],SEA:[47.4502,-122.3088],BOS:[42.3656,-71.0096],
+  DFW:[32.8998,-97.0403],DEN:[39.8561,-104.6737],LHR:[51.4700,-0.4543],LGW:[51.1537,-0.1821],
+  CDG:[49.0097,2.5478],AMS:[52.3086,4.7639],FRA:[50.0379,8.5622],MAD:[40.4983,-3.5676],
+  BCN:[41.2971,2.0785],FCO:[41.8003,12.2389],MUC:[48.3537,11.7750],ZRH:[47.4647,8.5492],
+  VIE:[48.1103,16.5697],CPH:[55.6180,12.6560],ARN:[59.6519,17.9186],HEL:[60.3172,24.9633],
+  OSL:[60.1939,11.1004],WAW:[52.1657,20.9671],PRG:[50.1008,14.2600],BUD:[47.4298,19.2611],
+  ATH:[37.9364,23.9445],LIS:[38.7756,-9.1354],DUB:[53.4213,-6.2700],MAN:[53.3537,-2.2750],
+  DXB:[25.2532,55.3657],AUH:[24.4330,54.6511],DOH:[25.2732,51.6080],RUH:[24.9576,46.6988],
+  KWI:[29.2266,47.9689],IST:[41.2753,28.7519],SIN:[1.3644,103.9915],BKK:[13.6900,100.7501],
+  KUL:[2.7456,101.7099],CGK:[-6.1256,106.6559],MNL:[14.5086,121.0194],HKG:[22.3080,113.9185],
+  PVG:[31.1434,121.8052],PEK:[40.0799,116.6031],ICN:[37.4602,126.4407],NRT:[35.7653,140.3857],
+  HND:[35.5533,139.7811],SYD:[-33.9399,151.1753],MEL:[-37.6690,144.8410],AKL:[-37.0082,174.7850],
+  CAI:[30.1219,31.4056],JNB:[-26.1367,28.2411],NBO:[-1.3192,36.9275],LOS:[6.5774,3.3210],
+  ADD:[8.9779,38.7993],CPT:[-33.9715,18.6021],YYZ:[43.6777,-79.6248],YVR:[49.1967,-123.1815],
+  YUL:[45.4697,-73.7408],MEX:[19.4361,-99.0719],GRU:[-23.4356,-46.4731],GIG:[-22.8099,-43.2505],
+  BOG:[4.7016,-74.1469],LIM:[-12.0219,-77.1143],SCL:[-33.3930,-70.7858],EZE:[-34.8222,-58.5358],
+  DEL:[28.5562,77.1000],BOM:[19.0896,72.8656],BLR:[13.1986,77.7066],MAA:[12.9900,80.1693],
+  HYD:[17.2403,78.4294],SVO:[55.9726,37.4146],DME:[55.4088,37.9064],LED:[59.8003,30.2625]
+};
+
+let lastResult   = null;
+let arcLayers    = [];
+let markerLayers = [];
+let compareVisible = false;
+
+function showLoading(on){ document.getElementById('loading').classList.toggle('show',on); }
+function setEmpty(on)   { document.getElementById('empty-state').style.display = on?'':'none'; }
+function hideCards() {
+  ['card-dijkstra','card-astar','compare-card','msg-card'].forEach(id=>
+    document.getElementById(id).classList.remove('show'));
+  compareVisible = false;
+}
+function showMsg(text,isError){
+  const el = document.getElementById('msg-card');
+  el.textContent = text;
+  el.classList.toggle('error',!!isError);
+  el.classList.add('show');
+}
+
+// Read the currently selected metric radio
+function getMetric(){
+  const c = document.querySelector('input[name="metric"]:checked');
+  return c ? c.value : 'distance';
+}
+
+// Parse the "extra" string from Java backend.
+// New StudentCode uses unicode arrows and lines like:
+//   Metric: Time
+//   -- Dijkstra (blue) --
+//   JFK -> CDG -> LHR
+//   Distance : 5539 km
+//   Time     : 8h 45m
+//   Cost     : $1461.56
+//   Optimised: 8h 45m
+//   Explored : 42 nodes
+function parseExtra(raw){
+  const lines = raw.split(/\\n|\n/).map(l=>l.trim()).filter(Boolean);
+  const out = { dijkstra:{}, astar:{}, metric:'distance' };
+  let mode = null;
+
+  for(const l of lines){
+    if(l.startsWith('Metric:')){ out.metric = l.split(':')[1].trim().toLowerCase(); continue; }
+    if(l.includes('Dijkstra') && l.includes('blue')) { mode='dijkstra'; continue; }
+    if(l.includes('A*')       && l.includes('orange')){ mode='astar';   continue; }
+    if(!mode) continue;
+    const d = mode==='dijkstra' ? out.dijkstra : out.astar;
+
+    if(l.includes('\u2192') || l.includes('->')){
+      d.path = l.replace(/\u2192/g,'->');
+    } else if(/^Distance/.test(l)){
+      const m = l.match(/([\d.]+)/); if(m) d.distance = parseFloat(m[1]);
+    } else if(/^Time/.test(l)){
+      d.time = l.split(':').slice(1).join(':').trim();
+    } else if(/^Cost/.test(l)){
+      const m = l.match(/([\d.]+)/); if(m) d.cost = parseFloat(m[1]);
+    } else if(/^Optimis/.test(l)){
+      d.optimised = l.split(':').slice(1).join(':').trim();
+    } else if(/^Explored/.test(l)){
+      const m = l.match(/(\d+)/); if(m) d.nodes = parseInt(m[1]);
+    }
+  }
+  return out;
+}
+
+function pathToStops(p){ return p ? Math.max(0, p.split('->').length-2).toString() : '--'; }
+
+// Highlight the active metric row in each card
+function updateActiveRows(metric){
+  ['dijk','astar'].forEach(prefix=>{
+    document.getElementById(prefix+'-row-dist').classList.toggle('active', metric==='distance');
+    document.getElementById(prefix+'-row-time').classList.toggle('active', metric==='time');
+    document.getElementById(prefix+'-row-cost').classList.toggle('active', metric==='cost');
+  });
+}
+
+function renderResults(parsed){
+  setEmpty(false);
+  const dijk=parsed.dijkstra, astar=parsed.astar;
+  const metric = parsed.metric || getMetric();
+
+  const hasDijk  = dijk.nodes  != null;
+  const hasAstar = astar.nodes != null;
+  if(!hasDijk && !hasAstar){ showMsg('No valid route found with those constraints.',true); return; }
+
+  function fill(prefix, data){
+    document.getElementById(prefix+'-dist').textContent  = data.distance!=null ? data.distance.toFixed(0)+' km' : '--';
+    document.getElementById(prefix+'-time').textContent  = data.time  || '--';
+    document.getElementById(prefix+'-cost').textContent  = data.cost!=null  ? '$'+data.cost.toFixed(2) : '--';
+    document.getElementById(prefix+'-nodes').textContent = data.nodes!=null ? data.nodes : '--';
+    document.getElementById(prefix+'-stops').textContent = pathToStops(data.path);
+    document.getElementById(prefix+'-path').textContent  = data.path || '--';
+  }
+
+  if(hasDijk)  { fill('dijk',  dijk);  document.getElementById('card-dijkstra').classList.add('show'); }
+  if(hasAstar) { fill('astar', astar); document.getElementById('card-astar').classList.add('show'); }
+
+  updateActiveRows(metric);
+
+  // Node-count badges
+  const bd=document.getElementById('badge-dijk'), ba=document.getElementById('badge-astar');
+  bd.className=ba.className='';
+  if(hasDijk&&hasAstar&&dijk.nodes!=null&&astar.nodes!=null){
+    if(dijk.nodes<astar.nodes){
+      bd.textContent='Fewer nodes'; bd.className='algo-badge badge-faster';
+      ba.textContent='More nodes';  ba.className='algo-badge badge-more';
+    } else if(astar.nodes<dijk.nodes){
+      ba.textContent='Fewer nodes'; ba.className='algo-badge badge-faster';
+      bd.textContent='More nodes';  bd.className='algo-badge badge-more';
+    } else {
+      bd.textContent=ba.textContent='Tied';
+      bd.className=ba.className='algo-badge';
+    }
+  }
+  lastResult = parsed;
+}
+
+// Arc drawing
+function drawArcs(pathStr, color, map){
+  if(!pathStr) return;
+  const codes = pathStr.split('->').map(s=>s.trim());
+  for(let i=0;i<codes.length-1;i++){
+    const a=AIRPORT_COORDS[codes[i]], b=AIRPORT_COORDS[codes[i+1]];
+    if(!a||!b) continue;
+    const mid=[( a[0]+b[0])/2 + -(b[1]-a[1])*0.08,
+               (a[1]+b[1])/2 +  (b[0]-a[0])*0.08];
+    const pts=[];
+    for(let t=0;t<=1;t+=0.02){
+      const mt=1-t;
+      pts.push([mt*mt*a[0]+2*mt*t*mid[0]+t*t*b[0],
+                mt*mt*a[1]+2*mt*t*mid[1]+t*t*b[1]]);
+    }
+    arcLayers.push(L.polyline(pts,{color,weight:2.5,opacity:.85}).addTo(map));
+  }
+  codes.forEach((code,idx)=>{
+    const pos=AIRPORT_COORDS[code]; if(!pos) return;
+    const ep=idx===0||idx===codes.length-1;
+    markerLayers.push(
+      L.circleMarker(pos,{radius:ep?8:5,color:'#fff',fillColor:color,fillOpacity:1,weight:ep?2.5:1.5})
+       .bindTooltip(code,{permanent:false,direction:'top'}).addTo(map));
+  });
+}
+function clearArcs(){
+  arcLayers.forEach(l=>l.remove()); markerLayers.forEach(l=>l.remove());
+  arcLayers=[]; markerLayers=[];
+}
+
+function init(){
+  const slider=document.getElementById('layover-slider');
+  const numEl=document.getElementById('layover-num');
+  const pills=document.querySelectorAll('.pill');
+
+  slider.addEventListener('input',()=>{
+    const v=parseInt(slider.value);
+    numEl.textContent=v;
+    pills.forEach(p=>p.classList.toggle('on',parseInt(p.dataset.i)<=v));
+  });
+
+  document.getElementById('swap-btn').addEventListener('click',()=>{
+    const dep=document.getElementById('dep'),dst=document.getElementById('dest');
+    [dep.value,dst.value]=[dst.value,dep.value];
+  });
+
+  const defaultStyle={color:'#4f8ef7',fillColor:'#4f8ef7',fillOpacity:.12,weight:.7};
+  const map=L.map('map',{
+    layers:[L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png',
+                        {attribution:'&copy; CartoDB'})],
+    center:[20,10],zoom:2,zoomControl:true
+  });
+
+  Object.entries(AIRPORT_COORDS).forEach(([code,pos])=>{
+    L.circleMarker(pos,{radius:5,color:'#4f8ef7',fillColor:'#4f8ef7',fillOpacity:.8,weight:1})
+     .addTo(map).bindTooltip(code).on('click',()=>sendClick(code));
+  });
+
+  map.zoomControl.setPosition('bottomright');
+  map.createPane('labels');
+  map.getPane('labels').style.zIndex=650;
+  map.getPane('labels').style.pointerEvents='none';
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}.png',
+              {attribution:'OpenStreetMap, CartoDB',pane:'labels'}).addTo(map);
+
+  const countryLayers={};
+  const countries=(typeof L.CountrySelect!=='undefined'&&L.CountrySelect.countries)
+                   ? L.CountrySelect.countries : {};
+  for(const code in countries){
+    if(!Object.prototype.hasOwnProperty.call(countries,code)) continue;
+    const layer=L.geoJson(countries[code],{
+      style:defaultStyle,
+      onEachFeature(feature,lyr){
+        lyr.on('click',()=>sendClick(feature.properties.name));
+        lyr.on('mouseover',()=>lyr.setStyle({fillOpacity:.3,weight:1.2}));
+        lyr.on('mouseout', ()=>lyr.setStyle(defaultStyle));
+      }
+    }).addTo(map);
+    countryLayers[code]=layer;
+  }
+
+  function applyColors(hashmap){
+    for(const code in countryLayers) countryLayers[code].setStyle(defaultStyle);
+    for(const key in hashmap){
+      if(key==='extra') continue;
+      if(countryLayers[key])
+        countryLayers[key].setStyle({color:hashmap[key],fillColor:hashmap[key],fillOpacity:.55,weight:1});
+    }
+    if(hashmap.extra){
+      const parsed=parseExtra(hashmap.extra);
+      hideCards(); renderResults(parsed); clearArcs();
+      if(parsed.dijkstra.path) drawArcs(parsed.dijkstra.path,'rgb(59,130,246)',map);
+      if(parsed.astar.path && parsed.astar.path!==parsed.dijkstra.path)
+        drawArcs(parsed.astar.path,'rgb(249,115,22)',map);
+    }
+  }
+
+  function sendClick(code){
+    showLoading(true);
+    fetch('/country-clicked',{method:'POST',headers:{'Content-Type':'text/plain'},body:code})
+      .then(r=>r.json()).then(data=>{applyColors(data);showLoading(false);})
+      .catch(e=>{console.error(e);showLoading(false);});
+  }
+
+  // ── FIND ROUTE: now sends metric ─────────────────────────────────────────
+  function findRoute(){
+    const dep=document.getElementById('dep').value.trim();
+    const dest=document.getElementById('dest').value.trim();
+    if(!dep||!dest){showMsg('Please select both airports.',true);setEmpty(false);return;}
+    if(dep===dest) {showMsg('Departure and destination must differ.',true);setEmpty(false);return;}
+
+    showLoading(true); hideCards(); clearArcs();
+
+    fetch('/api',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        country1: dep,
+        country2: dest,
+        layovers: slider.value,
+        metric:   getMetric()    // "distance" | "time" | "cost"
+      })
+    })
+    .then(r=>r.json())
+    .then(data=>{applyColors(data);showLoading(false);})
+    .catch(e=>{console.error(e);showLoading(false);showMsg('Server error -- check console.',true);});
+  }
+
+  document.getElementById('find-btn').addEventListener('click', findRoute);
+
+  // ── Metric radio: re-run search automatically when changed ───────────────
+  document.querySelectorAll('input[name="metric"]').forEach(radio=>{
+    radio.addEventListener('change',()=>{
+      const dep=document.getElementById('dep').value.trim();
+      const dest=document.getElementById('dest').value.trim();
+      if(dep && dest) findRoute();
+    });
+  });
+
+  // ── Reset ─────────────────────────────────────────────────────────────────
+  document.getElementById('reset-btn').addEventListener('click',()=>{
+    for(const code in countryLayers) countryLayers[code].setStyle(defaultStyle);
+    clearArcs(); hideCards(); setEmpty(true);
+    lastResult=null; compareVisible=false;
+    document.getElementById('dep').value='';
+    document.getElementById('dest').value='';
+    slider.value=0; numEl.textContent=0;
+    pills.forEach(p=>p.classList.remove('on'));
+    fetch('/country-clicked',{method:'POST',headers:{'Content-Type':'text/plain'},body:'__RESET__'}).catch(()=>{});
+  });
+
+  // ── Compare ───────────────────────────────────────────────────────────────
+  document.getElementById('compare-btn').addEventListener('click',()=>{
+    if(!lastResult){showMsg('Run a route search first.',true);setEmpty(false);return;}
+    const card=document.getElementById('compare-card');
+    compareVisible=!compareVisible;
+    card.classList.toggle('show',compareVisible);
+    if(compareVisible) buildCompareTable(lastResult);
+  });
+
+  function buildCompareTable(parsed){
+    const d=parsed.dijkstra, a=parsed.astar;
+    const body=document.getElementById('compare-body');
+    const rows=[
+      ['Distance (km)', d.distance!=null?d.distance.toFixed(0):'--', a.distance!=null?a.distance.toFixed(0):'--'],
+      ['Flight time',   d.time||'--',  a.time||'--'],
+      ['Cost (USD)',    d.cost!=null?'$'+d.cost.toFixed(2):'--', a.cost!=null?'$'+a.cost.toFixed(2):'--'],
+      ['Nodes explored',d.nodes??'--', a.nodes??'--'],
+      ['Stops',         pathToStops(d.path), pathToStops(a.path)],
+      ['Route',         d.path||'--', a.path||'--']
+    ];
+    body.innerHTML=rows.map(([lbl,dv,av])=>
+      `<tr><td><span style="color:var(--text-muted)">${lbl}</span></td><td>${dv}</td><td>${av}</td></tr>`
+    ).join('');
+  }
+
+  // Layover slider -> notify backend
+  slider.addEventListener('change',()=>{
+    fetch('/api',{method:'POST',headers:{'Content-Type':'application/json'},
+                  body:JSON.stringify({layovers:slider.value})}).catch(()=>{});
+  });
+
+  // Message polling
+  setInterval(()=>{
+    fetch('/get-messages').then(r=>r.json()).then(data=>{
+      if(data.messages&&data.messages.trim())
+        data.messages.split(';;').filter(Boolean).forEach(m=>{if(m.trim())alert(m);});
+    }).catch(()=>{});
+  },1500);
+
+  document.getElementById('play-btn').addEventListener('click',()=>{
+    document.getElementById('play-overlay').style.display='none';
+  });
+}
+
+window.addEventListener('load', init);
+</script>
+</body>
+</html>
